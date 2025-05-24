@@ -41,7 +41,11 @@ impl ThreadPool {
         F: FnOnce() + Send + 'static
     {
         let job = Box::new(f);
-        self.sender.send(Message::NewJob(job)).unwrap();
+
+        match self.sender.send(Message::NewJob(job)){
+            Ok(_) =>  println!("Sending message"),
+            Err(e) => eprintln!("Error sending message: {}", e)
+        };
     }
 }
 impl Drop for ThreadPool{
@@ -71,11 +75,19 @@ struct Worker {
 impl Worker {
     fn new(id: usize, receiver: Arc<std::sync::Mutex<mpsc::Receiver<Message>>>) -> Worker{
         let thread = thread::spawn(move || loop {
-            let message = receiver
-                .lock()
-                .unwrap()
-                .recv()
-                .unwrap();
+            let message = match receiver.lock() {
+                Ok(lock) => match lock.recv() {
+                    Ok(msg) => msg,
+                    Err(e) => {
+                        eprintln!("Worker {} failed to receive job: {}", id, e);
+                        break;
+                    }
+                },
+                Err(e) => {
+                    eprintln!("Worker {} failed to lock receiver: {}", id, e);
+                    break;
+                }
+            };
 
             match message {
                 Message::NewJob(job) => {
